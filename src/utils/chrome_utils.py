@@ -39,12 +39,16 @@ def chrome_browser_options():
     options.add_argument("--disable-plugins")
     options.add_argument("--disable-animations")
     options.add_argument("--disable-cache")
-    options.add_argument("--incognito")
     options.add_argument("--allow-file-access-from-files")
     options.add_argument("--disable-web-security")
 
-    # Rotate user agent each session
-    ua = random.choice(_USER_AGENTS)
+    # Use a persistent profile so LinkedIn remembers the session — prevents "new device" emails
+    import os
+    profile_dir = os.path.expanduser("~/.linkedin_bot_profile")
+    options.add_argument(f"--user-data-dir={profile_dir}")
+
+    # Use a consistent user agent (persistent profile means consistent identity to LinkedIn)
+    ua = _USER_AGENTS[0]
     options.add_argument(f"--user-agent={ua}")
     logger.debug(f"Using user agent: {ua[:60]}...")
 

@@ -50,5 +50,14 @@ title_blacklist:
   - Graduate
   - Entry Level
   - Associate
+  - Software Engineer
+  - Frontend
+  - Backend
+  - Full-stack
+  - Full Stack
+  - Site Reliability
+  - DevOps
+  - QA Engineer
+  - Embedded
 
 location_blacklist: []

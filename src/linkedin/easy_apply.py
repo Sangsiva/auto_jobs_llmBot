@@ -24,8 +24,9 @@ class EasyApplyFiller:
 Name: Sivakumar | Email: sivaeee1992@gmail.com | Phone: +6586077943
 Location: Singapore (open to relocate UK/Europe) | Experience: 10+ years
 Current role: AI Data Engineer at Tookitaki (Jun 2022-present) | Notice: Immediate
-Visa: Singapore work auth | Salary: USD 100000 annual / GBP 80000 / SGD 8500/month
-Skills: Spark, Scala, Python, Kafka, LangChain, LangGraph, AWS, EKS, Docker, K8s, Airflow, SparkML"""
+Visa: Singapore Employment Pass (Foreigner — not citizen, not PR) | Salary: USD 100000 / SGD 8500/month
+Skills: Spark, Scala, Python, Kafka, LangChain, LangGraph, AWS, EKS, Docker, K8s, Airflow, SparkML
+Demographic surveys: right-to-work=Foreigner, gender=Man, disability=No or Prefer not to disclose, ethnicity=Prefer not to disclose"""
 
     def _claude_answer(self, question: str, field_type: str = "text", options: list = None) -> str:
         """Single-question fallback — prefer _claude_answer_batch for multiple questions."""
@@ -343,14 +344,35 @@ Skills: Spark, Scala, Python, Kafka, LangChain, LangGraph, AWS, EKS, Docker, K8s
                         try:
                             lbl = self.driver.find_element(
                                 By.CSS_SELECTOR, f"label[for='{r.get_attribute('id')}']")
-                            opts_labels.append((r, lbl.text.strip()))
+                            opts_labels.append((r, lbl.text.strip(), lbl))
                         except Exception:
-                            opts_labels.append((r, r.get_attribute("value") or ""))
+                            opts_labels.append((r, r.get_attribute("value") or "", None))
                     matched = next(
-                        ((r, t) for r, t in opts_labels if answer.lower() in t.lower()), None)
-                    target = matched[0] if matched else (opts_labels[0][0] if opts_labels else None)
-                    if target and not target.is_selected():
-                        target.click()
+                        ((r, t, lbl) for r, t, lbl in opts_labels if answer.lower() in t.lower()), None)
+                    if matched:
+                        radio_el, _, label_el = matched
+                    else:
+                        radio_el, _, label_el = opts_labels[0] if opts_labels else (None, None, None)
+                    if radio_el and not radio_el.is_selected():
+                        clicked = False
+                        # Try label click first — works for LinkedIn's custom radio UI
+                        if label_el:
+                            try:
+                                label_el.click()
+                                clicked = True
+                            except Exception:
+                                pass
+                        if not clicked:
+                            try:
+                                radio_el.click()
+                                clicked = True
+                            except Exception:
+                                pass
+                        if not clicked:
+                            try:
+                                self.driver.execute_script("arguments[0].click();", radio_el)
+                            except Exception:
+                                pass
             except Exception as e:
                 logger.debug(f"Apply answer error ({p['field_type']}): {e}")
 
