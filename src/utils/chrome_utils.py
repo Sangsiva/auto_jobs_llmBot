@@ -59,7 +59,22 @@ def chrome_browser_options():
     return options
 
 
+def _clear_profile_locks():
+    """Remove stale Chrome lock files from the persistent profile so Chrome can start cleanly."""
+    profile_dir = os.path.expanduser("~/.linkedin_bot_profile")
+    for lock_file in ["SingletonLock", "SingletonCookie", "SingletonSocket", "lockfile"]:
+        path = os.path.join(profile_dir, lock_file)
+        try:
+            if os.path.exists(path) or os.path.islink(path):
+                os.remove(path)
+                logger.debug(f"Removed stale lock: {path}")
+        except Exception:
+            pass
+
+
 def init_browser() -> webdriver.Chrome:
+    _clear_profile_locks()
+
     # Try undetected-chromedriver first (much harder for LinkedIn to fingerprint)
     try:
         import undetected_chromedriver as uc
