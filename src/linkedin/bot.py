@@ -103,13 +103,42 @@ class LinkedInBot:
 
     def _get_job_cards(self):
         """Get all job cards on the current search results page."""
+        from selenium.webdriver.support.ui import WebDriverWait
+        from selenium.webdriver.support import expected_conditions as EC
+        selectors = [
+            "li.jobs-search-results__list-item",
+            "div.job-card-container",
+            "li.ember-view.jobs-search-results__list-item",
+            "div.scaffold-layout__list-item",
+        ]
+        # Dismiss "Sign in to view more jobs" modal if present
+        self._dismiss_signin_modal()
+
+        # Wait up to 8s for any selector to appear
+        for sel in selectors:
+            try:
+                WebDriverWait(self.driver, 8).until(
+                    EC.presence_of_element_located((By.CSS_SELECTOR, sel))
+                )
+                cards = self.driver.find_elements(By.CSS_SELECTOR, sel)
+                if cards:
+                    logger.debug(f"Found {len(cards)} job cards with selector: {sel}")
+                    return cards
+            except Exception:
+                continue
+        return []
+
+    def _dismiss_signin_modal(self):
+        """Dismiss LinkedIn's 'Sign in to view more jobs' popup if it appears."""
         try:
-            return self.driver.find_elements(
-                By.CSS_SELECTOR,
-                "li.jobs-search-results__list-item, div.job-card-container"
+            close_btn = self.driver.find_element(
+                By.CSS_SELECTOR, "button[aria-label='Dismiss'], button.modal__dismiss, button[data-tracking-control-name='public_jobs_contextual-sign-in-modal_modal_dismiss']"
             )
+            close_btn.click()
+            logger.debug("Dismissed sign-in modal.")
+            time.sleep(1)
         except Exception:
-            return []
+            pass
 
     def _close_modal(self):
         """Safely close any open Easy Apply modal, handling the save/discard dialog."""
@@ -396,6 +425,7 @@ class LinkedInBot:
                 time.sleep(3)
 
                 page = 1
+                browser_alive = True
                 while self.applied_count < max_applications:
                     print(f"  Page {page} — Applied: {self.applied_count}/{max_applications}")
                     job_cards = self._get_job_cards()
@@ -404,7 +434,6 @@ class LinkedInBot:
                         print("  No job cards found on this page.")
                         break
 
-                    browser_alive = True
                     for card in job_cards:
                         if self.applied_count >= max_applications:
                             break

@@ -10,8 +10,27 @@ class LinkedInAuthenticator:
     def __init__(self, driver):
         self.driver = driver
 
+    def _is_logged_in(self) -> bool:
+        """Check if the browser is currently logged into LinkedIn."""
+        try:
+            # The global nav bar only exists when logged in
+            self.driver.find_element(By.CSS_SELECTOR, "nav.global-nav, div.global-nav__me, .feed-identity-module")
+            return True
+        except Exception:
+            return False
+
     def login(self, email: str, password: str):
         logger.info("Logging into LinkedIn...")
+        self.driver.get("https://www.linkedin.com/feed")
+        time.sleep(3)
+
+        # If persistent profile already has a valid session, the nav bar will be present
+        if self._is_logged_in():
+            logger.info("Already logged in via persistent session — skipping login.")
+            return
+
+        logger.info("Not logged in — proceeding with credential login.")
+        # Not logged in — go to login page and fill credentials
         self.driver.get("https://www.linkedin.com/login")
         time.sleep(2)
 
