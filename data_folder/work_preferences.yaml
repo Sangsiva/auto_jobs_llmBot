@@ -1,0 +1,54 @@
+remote: true
+hybrid: true
+onsite: true
+
+experience_level:
+  internship: false
+  entry: false
+  associate: false
+  mid_senior_level: true
+  director: false
+  executive: false
+
+job_types:
+  full_time: true
+  contract: true
+  part_time: false
+  temporary: false
+  internship: false
+  other: false
+  volunteer: false
+
+date:
+  all_time: false
+  month: true
+  week: false
+  24_hours: false
+
+positions:
+  - Senior Data Engineer
+  - Lead Data Engineer
+  - AI Data Engineer
+  - Machine Learning Engineer
+  - ML Engineer
+  - Data Engineer
+  - MLOps Engineer
+  - Principal Data Engineer
+
+locations:
+  - Singapore
+
+apply_once_at_company: true
+
+distance: 50
+
+company_blacklist: []
+
+title_blacklist:
+  - Junior
+  - Intern
+  - Graduate
+  - Entry Level
+  - Associate
+
+location_blacklist: []
