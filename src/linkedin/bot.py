@@ -1,6 +1,7 @@
 """LinkedIn Easy Apply Bot — orchestrates job search and application."""
 import time
 import random
+import os
 from pathlib import Path
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
@@ -34,6 +35,20 @@ class LinkedInBot:
         self.skipped_count = 0
         self.failed_count = 0
         self.session_guard = SessionGuard()
+        self._screenshot_dir = Path("job_applications/screenshots")
+        self._screenshot_dir.mkdir(parents=True, exist_ok=True)
+        self._screenshot_idx = 0
+
+    def _screenshot(self, label: str):
+        """Save a browser screenshot for real-time debugging."""
+        self._screenshot_idx += 1
+        path = self._screenshot_dir / f"{self._screenshot_idx:02d}_{label}.png"
+        try:
+            self.driver.save_screenshot(str(path))
+            logger.debug(f"Screenshot: {path}")
+        except Exception:
+            pass
+        return path
 
     def _login(self):
         auth = LinkedInAuthenticator(self.driver)
@@ -377,6 +392,7 @@ class LinkedInBot:
 
         except Exception as e:
             logger.error(f"Error applying to job: {e}")
+            self._screenshot(f"error_{company.replace(' ','_')[:20]}")
             return "failed"
 
     def _next_page(self) -> bool:
@@ -410,6 +426,7 @@ class LinkedInBot:
             max_applications = remaining
 
         self._login()
+        self._screenshot("after_login")
         print("\nLogged in to LinkedIn.\n")
 
         positions = self.preferences.get("positions", [])
@@ -431,6 +448,7 @@ class LinkedInBot:
                     job_cards = self._get_job_cards()
 
                     if not job_cards:
+                        self._screenshot(f"no_cards_p{page}_{position.replace(' ','_')}")
                         print("  No job cards found on this page.")
                         break
 
