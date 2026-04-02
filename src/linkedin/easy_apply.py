@@ -86,6 +86,9 @@ Demographic surveys: right-to-work=Foreigner, gender=Man, disability=No or Prefe
 
     def _fill_text_field(self, element, question_text: str):
         """Fill a text input field."""
+        # Skip read-only or disabled fields (LinkedIn locks pre-filled name/email/phone)
+        if element.get_attribute("readonly") or element.get_attribute("disabled"):
+            return
         current_val = element.get_attribute("value") or ""
         if current_val.strip():
             return  # already filled
@@ -378,19 +381,43 @@ Demographic surveys: right-to-work=Foreigner, gender=Man, disability=No or Prefe
 
     def _click_next_or_submit(self) -> str:
         """Click Next, Review, or Submit button. Returns: 'next', 'review', 'submit', or 'done'."""
+        from selenium.common.exceptions import StaleElementReferenceException
         time.sleep(1)
+        # Re-find buttons fresh each time — fill_form_page may trigger React re-renders making old refs stale
         buttons = self.driver.find_elements(By.CSS_SELECTOR, "button[aria-label], footer button")
 
         for btn in buttons:
-            label = (btn.get_attribute("aria-label") or btn.text or "").lower()
+            try:
+                label = (btn.get_attribute("aria-label") or btn.text or "").lower()
+            except StaleElementReferenceException:
+                continue  # Button was replaced by re-render — skip
             if "submit application" in label:
-                btn.click()
+                try:
+                    btn.click()
+                except StaleElementReferenceException:
+                    # Re-find and click
+                    for b in self.driver.find_elements(By.CSS_SELECTOR, "button[aria-label]"):
+                        if "submit" in (b.get_attribute("aria-label") or "").lower():
+                            b.click()
+                            break
                 return "submit"
             elif "review" in label:
-                btn.click()
+                try:
+                    btn.click()
+                except StaleElementReferenceException:
+                    for b in self.driver.find_elements(By.CSS_SELECTOR, "button[aria-label]"):
+                        if "review" in (b.get_attribute("aria-label") or "").lower():
+                            b.click()
+                            break
                 return "review"
             elif "next" in label or "continue" in label:
-                btn.click()
+                try:
+                    btn.click()
+                except StaleElementReferenceException:
+                    for b in self.driver.find_elements(By.CSS_SELECTOR, "button[aria-label]"):
+                        if "next" in (b.get_attribute("aria-label") or "").lower():
+                            b.click()
+                            break
                 return "next"
 
         return "done"
