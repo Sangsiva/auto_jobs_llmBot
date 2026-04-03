@@ -60,7 +60,24 @@ def chrome_browser_options():
 
 
 def _clear_profile_locks():
-    """Remove stale Chrome lock files from the persistent profile so Chrome can start cleanly."""
+    """Kill any orphaned bot Chrome processes and remove stale lock files."""
+    import subprocess
+    # Kill any Chrome processes still using the bot profile (orphans from previous runs)
+    try:
+        result = subprocess.run(
+            ["pgrep", "-f", "linkedin_bot_profile"],
+            capture_output=True, text=True
+        )
+        pids = result.stdout.strip().split()
+        if pids:
+            subprocess.run(["kill", "-9"] + pids, capture_output=True)
+            import time as _t
+            _t.sleep(1)
+            logger.debug(f"Killed {len(pids)} orphaned bot Chrome process(es).")
+    except Exception:
+        pass
+
+    # Remove stale lock files
     profile_dir = os.path.expanduser("~/.linkedin_bot_profile")
     for lock_file in ["SingletonLock", "SingletonCookie", "SingletonSocket", "lockfile"]:
         path = os.path.join(profile_dir, lock_file)
@@ -82,7 +99,6 @@ def init_browser() -> webdriver.Chrome:
         options.add_argument("--start-maximized")
         options.add_argument("--no-sandbox")
         options.add_argument("--disable-dev-shm-usage")
-        options.add_argument("--incognito")
         ua = random.choice(_USER_AGENTS)
         options.add_argument(f"--user-agent={ua}")
         driver = uc.Chrome(options=options)

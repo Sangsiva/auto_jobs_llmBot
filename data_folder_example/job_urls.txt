@@ -1,0 +1,12 @@
+# job_urls.txt — Hand-picked LinkedIn job URLs to apply to directly
+#
+# Usage:
+#   - Add one LinkedIn job URL per line
+#   - Lines starting with # are treated as comments and ignored
+#   - Both Easy Apply and external Apply jobs are supported
+#     (external jobs will be handled by the VisualFormFiller)
+#   - Copy this file to data_folder/job_urls.txt and add your URLs
+#
+# Example:
+# https://www.linkedin.com/jobs/view/1234567890/
+# https://www.linkedin.com/jobs/view/9876543210/

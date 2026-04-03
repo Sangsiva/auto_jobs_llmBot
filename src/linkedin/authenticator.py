@@ -34,6 +34,11 @@ class LinkedInAuthenticator:
         self.driver.get("https://www.linkedin.com/login")
         time.sleep(3)
 
+        # LinkedIn may redirect /login → /feed if a valid session cookie exists
+        if "feed" in self.driver.current_url or "mynetwork" in self.driver.current_url:
+            logger.info("Redirected to feed after /login — already authenticated via session cookie.")
+            return
+
         # Screenshot + dump input fields so we can see what's available
         self.driver.save_screenshot("job_applications/screenshots/login_page.png")
         logger.info(f"Login page URL: {self.driver.current_url}")

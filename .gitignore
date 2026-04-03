@@ -170,3 +170,6 @@ venv.bak/
 mono_crash.*
 
 job_applications/
+# User-specific URL list and resume files — add your own, do not commit
+data_folder/job_urls.txt
+data_folder/resumes/

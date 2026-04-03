@@ -498,6 +498,72 @@ def handle_inquiries(selected_actions: List[str], parameters: dict, llm_api_key:
                 logger.info("Running JD Resume Matcher...")
                 run_jd_match(llm_api_key)
 
+            if "Apply to Jobs from URL List" == selected_actions:
+                url_file = Path("data_folder/job_urls.txt")
+                if not url_file.exists():
+                    print(f"ERROR: {url_file} not found.")
+                    print("Create data_folder/job_urls.txt with one LinkedIn job URL per line.")
+                    print("Lines starting with # are treated as comments.")
+                else:
+                    urls = []
+                    with open(url_file, "r", encoding="utf-8") as f:
+                        for line in f:
+                            line = line.strip()
+                            if line and not line.startswith("#"):
+                                urls.append(line)
+
+                    if not urls:
+                        print("No URLs found in data_folder/job_urls.txt")
+                    else:
+                        print(f"Found {len(urls)} URL(s) to process.")
+                        secrets = ConfigValidator.load_yaml(Path("data_folder/secrets.yaml"))
+                        linkedin_email = secrets.get("linkedin_email", "")
+                        linkedin_password = secrets.get("linkedin_password", "")
+                        if not linkedin_email or "TODO" in linkedin_email:
+                            print("ERROR: Add linkedin_email and linkedin_password to data_folder/secrets.yaml first.")
+                        else:
+                            import yaml as _yaml
+                            with open(Path("data_folder/plain_text_resume.yaml"), "r") as f:
+                                resume_data = _yaml.safe_load(f)
+                            profile = resume_data.get("personal_information", {})
+
+                            # Look for the most recently modified PDF in data_folder/resumes/
+                            resume_dir = Path("data_folder/resumes")
+                            resume_pdf = None
+                            if resume_dir.exists():
+                                pdfs = sorted(resume_dir.rglob("*.pdf"),
+                                              key=lambda p: p.stat().st_mtime, reverse=True)
+                                resume_pdf = pdfs[0] if pdfs else None
+
+                            if not resume_pdf:
+                                print("ERROR: No resume PDF found.")
+                                print("Place your resume PDF in data_folder/resumes/ before running URL apply.")
+                            else:
+                                print(f"Using resume: {resume_pdf}")
+                                try:
+                                    print("Initialising Chrome browser...")
+                                    driver = init_browser()
+                                    print("Browser ready. Starting URL apply bot...")
+                                    bot = LinkedInBot(
+                                        driver=driver,
+                                        api_key=llm_api_key,
+                                        email=linkedin_email,
+                                        password=linkedin_password,
+                                        preferences=parameters,
+                                        profile=profile,
+                                        resume_pdf_path=resume_pdf,
+                                    )
+                                    bot.run_from_urls(urls)
+                                except Exception as bot_error:
+                                    import traceback as _tb
+                                    print(f"\nERROR running URL bot: {bot_error}")
+                                    _tb.print_exc()
+                                finally:
+                                    try:
+                                        driver.quit()
+                                    except Exception:
+                                        pass
+
             if "View Application Report" == selected_actions:
                 days = input("Show report for how many days? (default 7): ").strip()
                 days = int(days) if days.isdigit() else 7
@@ -517,14 +583,16 @@ def handle_inquiries(selected_actions: List[str], parameters: dict, llm_api_key:
                         resume_data = yaml.safe_load(f)
                     profile = resume_data.get("personal_information", {})
 
-                    # Find the most recently generated tailored resume PDF, fallback to any PDF
-                    jd_resume_dir = Path("/Users/siva/Desktop/Resumes/JDSpecificResume")
-                    pdfs = sorted(jd_resume_dir.rglob("Sivakumar_Resume.pdf"), key=lambda p: p.stat().st_mtime, reverse=True)
-                    if pdfs:
-                        resume_pdf = pdfs[0]
+                    # Find the most recently modified PDF in data_folder/resumes/
+                    resume_dir = Path("data_folder/resumes")
+                    resume_pdf = None
+                    if resume_dir.exists():
+                        pdfs = sorted(resume_dir.rglob("*.pdf"), key=lambda p: p.stat().st_mtime, reverse=True)
+                        resume_pdf = pdfs[0] if pdfs else None
+                    if resume_pdf:
                         print(f"Using resume: {resume_pdf}")
                     else:
-                        print("ERROR: No tailored resume PDF found. Run 'Generate Tailored Resume from JD (Smart Match)' first.")
+                        print("ERROR: No resume PDF found. Place your resume PDF in data_folder/resumes/ first.")
                         resume_pdf = None
 
                     if resume_pdf:
@@ -564,6 +632,7 @@ ACTION_MAP = {
     "cover-letter": "Generate Tailored Cover Letter for Job Description",
     "jd-match":     "Generate Tailored Resume from JD (Smart Match)",
     "auto-apply":   "Auto Apply to LinkedIn Jobs",
+    "url-apply":    "Apply to Jobs from URL List",
     "report":       "View Application Report",
 }
 

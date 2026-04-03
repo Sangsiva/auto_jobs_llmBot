@@ -11,6 +11,7 @@ from anthropic import Anthropic
 from src.linkedin.authenticator import LinkedInAuthenticator
 from src.linkedin.easy_apply import EasyApplyFiller
 from src.libs.jd_resume_matcher.jd_matcher import tailor_resume_for_jd, generate_cover_letter_for_jd
+from src.linkedin.visual_form_filler import VisualFormFiller
 from src.linkedin.application_tracker import (
     record, already_applied, print_report,
     STATUS_APPLIED, STATUS_SKIPPED, STATUS_FAILED, STATUS_NO_EASY
@@ -394,6 +395,290 @@ class LinkedInBot:
             logger.error(f"Error applying to job: {e}")
             self._screenshot(f"error_{company.replace(' ','_')[:20]}")
             return "failed"
+
+    def _apply_to_url(self, url: str) -> str:
+        """Navigate directly to a LinkedIn job URL and attempt to apply. Returns: 'applied', 'skipped', 'failed'."""
+        try:
+            self.driver.get(url)
+
+            # Wait for the page to render — wait for job title container or any heading
+            try:
+                WebDriverWait(self.driver, 10).until(
+                    EC.presence_of_element_located((By.CSS_SELECTOR,
+                        "h1, h2, .job-details-jobs-unified-top-card__job-title, .jobs-unified-top-card__job-title"
+                    ))
+                )
+            except TimeoutException:
+                pass  # try selectors anyway
+            time.sleep(2)  # let JS settle after initial render
+
+            # Get job title — LinkedIn full-page job view uses h2, search panel uses h1
+            job_title = "Unknown Role"
+            for sel in [
+                "h1.job-details-jobs-unified-top-card__job-title",
+                "h2.job-details-jobs-unified-top-card__job-title",
+                ".job-details-jobs-unified-top-card__job-title",
+                "h1.t-24",
+                "h2.t-24",
+                "div.job-details-jobs-unified-top-card__job-title h1",
+                "div.job-details-jobs-unified-top-card__job-title h2",
+                ".jobs-unified-top-card__job-title",
+                ".t-24.t-bold",
+                "h1",
+                "h2",  # broadest fallback last
+            ]:
+                try:
+                    el = self.driver.find_element(By.CSS_SELECTOR, sel)
+                    text = el.text.strip()
+                    if text:
+                        job_title = text
+                        break
+                except Exception:
+                    continue
+
+            # Get company name
+            company = "Unknown Company"
+            for sel in [
+                "div.job-details-jobs-unified-top-card__company-name a",
+                ".jobs-unified-top-card__company-name a",
+                ".job-details-jobs-unified-top-card__primary-description a",
+                ".jobs-unified-top-card__subtitle-primary-grouping a",
+                "a.ember-view.t-black.t-normal",
+            ]:
+                try:
+                    el = self.driver.find_element(By.CSS_SELECTOR, sel)
+                    text = el.text.strip()
+                    if text:
+                        company = text
+                        break
+                except Exception:
+                    continue
+
+            logger.info(f"URL Job: {job_title} @ {company}")
+
+            # Get location
+            location = "Unknown"
+            for sel in [
+                ".jobs-unified-top-card__bullet",
+                ".job-details-jobs-unified-top-card__primary-description span",
+            ]:
+                try:
+                    location = self.driver.find_element(By.CSS_SELECTOR, sel).text.strip()
+                    if location:
+                        break
+                except Exception:
+                    continue
+
+            # Check blacklist
+            if self._is_blacklisted(job_title, company):
+                logger.info(f"Blacklisted — skipping: {job_title} @ {company}")
+                record(job_title, company, location, url, 0, "-", STATUS_SKIPPED, "Blacklisted | URL apply")
+                return "skipped"
+
+            # Duplicate check
+            if already_applied(company, job_title):
+                print(f"  Already applied — skipping: {job_title} @ {company}")
+                return "skipped"
+
+            # Try Easy Apply first — if not found, fall back to visual form filler
+            if not self._click_easy_apply():
+                logger.info(f"No Easy Apply — attempting visual form fill: {job_title} @ {company}")
+
+                # Look for any external Apply button and click it
+                apply_clicked = False
+                current_handles = set(self.driver.window_handles)
+                for sel in [
+                    "button.jobs-apply-button",
+                    "a.jobs-apply-button",
+                    "button[aria-label*='Apply']",
+                    "a[aria-label*='Apply']",
+                ]:
+                    try:
+                        btn = self.driver.find_element(By.CSS_SELECTOR, sel)
+                        if btn.is_displayed():
+                            btn.click()
+                            time.sleep(3)
+                            apply_clicked = True
+                            break
+                    except Exception:
+                        continue
+
+                if not apply_clicked:
+                    # Try any visible button/link containing "Apply"
+                    for el in self.driver.find_elements(By.XPATH,
+                            "//*[contains(translate(text(),'APPLY','apply'),'apply') and (self::button or self::a)]"):
+                        try:
+                            if el.is_displayed():
+                                el.click()
+                                time.sleep(3)
+                                apply_clicked = True
+                                break
+                        except Exception:
+                            continue
+
+                # Switch to new tab if one opened
+                new_handles = set(self.driver.window_handles) - current_handles
+                if new_handles:
+                    self.driver.switch_to.window(new_handles.pop())
+                    time.sleep(2)
+                    logger.info(f"Switched to new tab: {self.driver.current_url}")
+
+                if not apply_clicked and not new_handles:
+                    record(job_title, company, location, url, 0, "-", STATUS_NO_EASY, "URL apply — no apply button found")
+                    return "skipped"
+
+                # Hand off to visual form filler
+                jd_text = self._get_jd_text() if apply_clicked else ""
+                relevance_score = 8
+                filler = VisualFormFiller(
+                    driver=self.driver,
+                    api_key=self.api_key,
+                    profile=self.profile,
+                    resume_pdf_path=self.resume_pdf_path,
+                )
+                success = filler.run(job_title=job_title, company=company)
+
+                if success:
+                    print(f"  ✓ Applied (visual): {job_title} @ {company}")
+                    record(job_title, company, location, url, relevance_score,
+                           "visual-filler", STATUS_APPLIED, "URL apply — visual form filler")
+                    return "applied"
+                else:
+                    print(f"  ✗ Visual fill incomplete: {job_title} @ {company}")
+                    record(job_title, company, location, url, relevance_score,
+                           "visual-filler", STATUS_FAILED, "URL apply — visual fill incomplete")
+                    return "failed"
+
+            # Extract JD text
+            jd_text = self._get_jd_text()
+
+            # Score for tracking purposes — but do NOT gate on score (user hand-picked these URLs)
+            relevance_score = 8  # default optimistic for hand-picked URLs
+            if jd_text:
+                try:
+                    from anthropic import Anthropic as _A
+                    resp = _A(api_key=self.api_key).messages.create(
+                        model="claude-haiku-4-5-20251001", max_tokens=5,
+                        messages=[{"role": "user", "content":
+                            f"Score 0-10 relevance for a Senior Data/AI/ML Engineer with Spark, Python, LLM skills.\n"
+                            f"Job: {job_title}\nJD: {jd_text[:1000]}\nReply with single integer only."}]
+                    )
+                    relevance_score = int(resp.content[0].text.strip())
+                except Exception:
+                    pass  # keep default
+
+            # Tailor resume
+            tailored_pdf = None
+            resume_used = "fallback"
+            output_dir = None
+            if jd_text:
+                print(f"  Tailoring resume for {company}...")
+                tailored_pdf = tailor_resume_for_jd(
+                    api_key=self.api_key, jd_text=jd_text, company_name=company,
+                )
+                if tailored_pdf:
+                    resume_used = tailored_pdf.parent.name
+                    output_dir = tailored_pdf.parent
+
+            resume_to_use = tailored_pdf or self.resume_pdf_path
+
+            # Generate cover letter only if textarea present
+            cover_letter_text = None
+            if jd_text:
+                has_textarea = bool(self.driver.find_elements(By.CSS_SELECTOR, "textarea"))
+                if has_textarea:
+                    print(f"  Generating cover letter for {company}...")
+                    cover_letter_text = generate_cover_letter_for_jd(
+                        api_key=self.api_key,
+                        jd_text=jd_text,
+                        company_name=company,
+                        job_title=job_title,
+                        output_dir=output_dir,
+                    )
+                else:
+                    logger.info("No textarea on form — skipping cover letter")
+
+            # Fill and submit
+            filler = EasyApplyFiller(
+                driver=self.driver, api_key=self.api_key,
+                profile=self.profile, resume_pdf_path=resume_to_use,
+                cover_letter_text=cover_letter_text,
+            )
+            success = filler.run()
+
+            if success:
+                print(f"  ✓ Applied: {job_title} @ {company}")
+                record(job_title, company, location, url, relevance_score,
+                       resume_used, STATUS_APPLIED, "URL apply")
+                return "applied"
+            else:
+                print(f"  ✗ Failed: {job_title} @ {company}")
+                record(job_title, company, location, url, relevance_score,
+                       resume_used, STATUS_FAILED, "URL apply")
+                self._close_modal()
+                return "failed"
+
+        except Exception as e:
+            logger.error(f"Error applying to URL {url}: {e}")
+            self._screenshot(f"error_url_{url.split('/')[-1][:15]}")
+            return "failed"
+
+    def run_from_urls(self, urls: list):
+        """Apply to a hand-picked list of LinkedIn job URLs."""
+        print(f"\n{self.session_guard.status()}")
+        if not self.session_guard.start_session():
+            print("Daily limit reached. Exiting to protect account.")
+            return
+
+        remaining = self.session_guard.remaining_today()
+        max_to_apply = min(len(urls), remaining)
+        if max_to_apply < len(urls):
+            print(f"Daily limit allows {max_to_apply} of {len(urls)} URL(s) today.")
+
+        self._login()
+        self._screenshot("after_login")
+        print(f"\nLogged in to LinkedIn. Processing {max_to_apply} URL(s).\n")
+
+        for i, url in enumerate(urls[:max_to_apply]):
+            if not self.session_guard.can_apply():
+                print("Daily application limit reached. Stopping.")
+                break
+
+            print(f"\n[{i+1}/{max_to_apply}] {url}")
+            self._human_scroll()
+
+            try:
+                result = self._apply_to_url(url)
+            except (InvalidSessionIdException, WebDriverException) as e:
+                if "invalid session id" in str(e).lower() or "no such window" in str(e).lower():
+                    print("\n  Browser session lost. Applications so far are saved.")
+                    break
+                raise
+
+            if result == "applied":
+                self.applied_count += 1
+                self.session_guard.record_application()
+                # Wait between applications unless it's the last one
+                if i < max_to_apply - 1:
+                    wait_time = self.session_guard.next_wait_seconds()
+                    print(f"  Waiting {wait_time}s ({wait_time // 60}m {wait_time % 60}s) before next...")
+                    try:
+                        time.sleep(wait_time)
+                    except KeyboardInterrupt:
+                        print("\n  Wait interrupted. Moving to next URL.")
+            elif result == "skipped":
+                self.skipped_count += 1
+                time.sleep(random.randint(3, 8))
+            elif result == "failed":
+                self.failed_count += 1
+                time.sleep(random.randint(10, 20))
+
+        print(f"\n{'='*50}")
+        print(f"URL Apply session complete:")
+        print(f"  Applied:  {self.applied_count}")
+        print(f"  Skipped:  {self.skipped_count}")
+        print(f"  Failed:   {self.failed_count}")
+        print(f"{'='*50}")
 
     def _next_page(self) -> bool:
         """Click the next page button. Returns False if no next page."""
