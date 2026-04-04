@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Optional
 from anthropic import Anthropic
 from src.logging import logger
+from src.utils.resume_reviewer import review_resume_pdf
 
 RESUMES_DIR = Path("/Users/siva/Desktop/Resumes/sivasupdatedresume/html version")
 OUTPUT_BASE_DIR = Path("/Users/siva/Desktop/Resumes/JDSpecificResume")
@@ -243,6 +244,8 @@ def tailor_resume_for_jd(api_key: str, jd_text: str, company_name: str = None) -
 
     if _html_to_pdf(html_path, pdf_path):
         logger.info(f"Tailored resume saved: {pdf_path}")
+        # Auto-review PDF for formatting issues
+        review_resume_pdf(pdf_path, html_path=html_path, auto_fix=True)
         # Save review notes
         notes_path = output_dir / "review_notes.md"
         with open(notes_path, "w", encoding="utf-8") as f:
@@ -389,6 +392,7 @@ def run_jd_match(api_key: str):
     print("Converting to PDF...")
     if _html_to_pdf(html_path, pdf_path):
         print(f"PDF saved: {pdf_path} ({pdf_path.stat().st_size // 1024} KB)")
+        review_resume_pdf(pdf_path, html_path=html_path, auto_fix=True)
     else:
         print("PDF conversion failed. Open the HTML in Chrome and print manually.")
 

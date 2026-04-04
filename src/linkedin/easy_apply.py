@@ -20,22 +20,45 @@ class EasyApplyFiller:
         self.cover_letter_text = cover_letter_text
         self.wait = WebDriverWait(driver, 10)
 
-    _PROFILE_SUMMARY = """\
-Name: Sivakumar | Email: sivaeee1992@gmail.com | Phone: +6586077943
-Location: Singapore (open to relocate UK/Europe) | Experience: 10+ years
-Current role: AI Data Engineer at Tookitaki (Jun 2022-present) | Notice: Immediate
-Visa: Singapore Employment Pass (Foreigner — not citizen, not PR) | Salary: USD 100000 / SGD 8500/month
-Skills: Spark, Scala, Python, Kafka, LangChain, LangGraph, AWS, EKS, Docker, K8s, Airflow, SparkML
-Demographic surveys: right-to-work=Foreigner, gender=Man, disability=No or Prefer not to disclose, ethnicity=Prefer not to disclose"""
+    def _build_profile_summary(self) -> str:
+        """Build a plain-text profile summary from self.profile for use in Claude prompts."""
+        p = self.profile if isinstance(self.profile, dict) else {}
+        name = f"{p.get('name', '')} {p.get('surname', '')}".strip()
+        phone = f"{p.get('phone_prefix', '')} {p.get('phone', '')}".strip()
+        city = p.get('city', '')
+        country = p.get('country', '')
+        location = f"{city}, {country}".strip(", ")
+        email = p.get('email', '')
+        linkedin = p.get('linkedin', '')
+        github = p.get('github', '')
+        salary = p.get('salary_expectations', {})
+        salary_str = salary if isinstance(salary, str) else str(salary.get('salary_range_usd', '')) if isinstance(salary, dict) else ''
+        notice = p.get('availability', {})
+        notice_str = notice if isinstance(notice, str) else str(notice.get('notice_period', 'Immediate')) if isinstance(notice, dict) else 'Immediate'
+        skills = ", ".join(p.get('skills', [])) if isinstance(p.get('skills'), list) else p.get('skills', '')
+
+        lines = [f"Name: {name} | Email: {email} | Phone: {phone}"]
+        if location:
+            lines.append(f"Location: {location}")
+        if salary_str:
+            lines.append(f"Salary: {salary_str}")
+        lines.append(f"Notice: {notice_str}")
+        if linkedin:
+            lines.append(f"LinkedIn: {linkedin}")
+        if github:
+            lines.append(f"GitHub: {github}")
+        if skills:
+            lines.append(f"Skills: {skills}")
+        return " | ".join(lines)
 
     def _claude_answer(self, question: str, field_type: str = "text", options: list = None) -> str:
         """Single-question fallback — prefer _claude_answer_batch for multiple questions."""
         options_text = f"\nOptions: {options}" if options else ""
         prompt = (
-            f"Profile: {self._PROFILE_SUMMARY}\n\n"
+            f"Profile: {self._build_profile_summary()}\n\n"
             f"Q: {question}\nType: {field_type}{options_text}\n\n"
             "Rules: concise, no fabrication, numbers only for numeric fields, "
-            "exact option text for dropdowns, salary=100000 USD or 8500 SGD.\n"
+            "exact option text for dropdowns.\n"
             "Answer only:"
         )
         response = self.client.messages.create(
@@ -60,10 +83,10 @@ Demographic surveys: right-to-work=Foreigner, gender=Man, disability=No or Prefe
             q_lines.append(f"Q{q['id']} ({q['field_type']}): {q['question']}{opt}")
 
         prompt = (
-            f"Profile: {self._PROFILE_SUMMARY}\n\n"
+            f"Profile: {self._build_profile_summary()}\n\n"
             "Answer each question for a job application form. Rules: concise, no fabrication, "
             "numbers only for numeric fields, exact option text for dropdowns, "
-            "salary=100000 USD or 8500 SGD, textarea answers ≤100 words.\n\n"
+            "textarea answers ≤100 words.\n\n"
             + "\n".join(q_lines)
             + "\n\nReply with one line per question in format:\nQ1: <answer>\nQ2: <answer>"
         )
@@ -97,20 +120,22 @@ Demographic surveys: right-to-work=Foreigner, gender=Man, disability=No or Prefe
         q_lower = question_text.lower()
         answer = None
 
+        p = self.profile if isinstance(self.profile, dict) else {}
         if any(k in q_lower for k in ["first name", "given name"]):
-            answer = "Sivakumar"
+            answer = p.get('name', '')
         elif any(k in q_lower for k in ["last name", "surname", "family name"]):
-            answer = ""
+            answer = p.get('surname', '')
         elif "email" in q_lower:
-            answer = "sivaeee1992@gmail.com"
+            answer = p.get('email', '')
         elif "phone" in q_lower or "mobile" in q_lower:
-            answer = "+6586077943"
+            phone = f"{p.get('phone_prefix', '')} {p.get('phone', '')}".strip()
+            answer = phone
         elif any(k in q_lower for k in ["city", "location"]):
-            answer = "Singapore"
+            answer = p.get('city', '')
         elif "linkedin" in q_lower:
-            answer = "https://linkedin.com/in/siva-kumar-51853222"
+            answer = p.get('linkedin', '')
         elif "github" in q_lower:
-            answer = "https://github.com/Sangsiva"
+            answer = p.get('github', '')
         elif any(k in q_lower for k in ["salary", "compensation", "ctc", "expected"]):
             answer = "100000"
         elif any(k in q_lower for k in ["notice", "start", "available", "join"]):
